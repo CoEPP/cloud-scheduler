@@ -111,7 +111,7 @@ log_format = "%(asctime)s - %(levelname)s - %(threadName)s - %(message)s"
 
 use_pyopenssl = False
 
-
+batch_system_type = "condor"
 
 def setup(path=None):
     """Setup cloudscheduler using config file.
@@ -210,6 +210,7 @@ def setup(path=None):
     global log_format
 
     global use_pyopenssl
+    global batch_system_type
 
     homedir = os.path.expanduser('~')
 
@@ -778,3 +779,6 @@ def setup(path=None):
 
     if config_file.has_option("global", "use_pyopenssl"):
         use_pyopenssl = config_file.getboolean("global", "use_pyopenssl")
+
+    if config_file.has_option("global", "batch_system_type"):
+        batch_system_type = config_file.getboolean("global", "batch_system_type")
