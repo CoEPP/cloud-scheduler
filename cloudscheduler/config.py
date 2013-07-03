@@ -787,4 +787,4 @@ def setup(path=None):
         use_pyopenssl = config_file.getboolean("global", "use_pyopenssl")
 
     if config_file.has_option("global", "batch_system_type"):
-        batch_system_type = config_file.getboolean("global", "batch_system_type")
+        batch_system_type = config_file.get("global", "batch_system_type")
