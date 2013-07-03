@@ -124,16 +124,20 @@ class ResourcePool:
         self.non_cs_condor_machines = set()
         self.missing_vm_condor_machines = set()
 
-        if not condor_query_type:
-            condor_query_type = config.condor_retrieval_method
+        log.info("using %s" % config.batch_system_type)
+        if config.batch_system_type.lower() == "condor":
+            if not condor_query_type:
+                condor_query_type = config.condor_retrieval_method
 
-        if condor_query_type.lower() == "local":
-            self.resource_query = self.resource_query_local
-        elif condor_query_type.lower() == "soap":
-            self.resource_query = self.resource_query_SOAP
-        else:
-            log.error("Can't use '%s' retrieval method. Using SOAP method." % condor_query_type)
-            self.resource_query = self.resource_query_SOAP
+            if condor_query_type.lower() == "local":
+                self.resource_query = self.resource_query_local
+            elif condor_query_type.lower() == "soap":
+                self.resource_query = self.resource_query_SOAP
+            else:
+                log.error("Can't use '%s' retrieval method. Using SOAP method." % condor_query_type)
+                self.resource_query = self.resource_query_SOAP
+        elif config.batch_system_type.lower() == "torque":
+            self.resource_query = self.resource_query_torque
             
         if config.scheduling_metric.lower() == "slot":
             self.vmtype_distribution = self.vmtype_slot_distribution
@@ -791,6 +795,28 @@ class ResourcePool:
         for item in items:
             native_list.append(self.convert_classad_dict(item))
         return native_list
+    
+    def resource_query_torque(self):
+        """
+        resource_query_torque -- does a query to Torque's worker nodes
+        
+        return a list of nodes
+        """
+        log.verbose("Querying Torque with %s" % config.torque_pbsnodes_command)
+
+        machine_list = []
+        try:
+            query_status = shlex.split(config.torque_pbsnodes_command)
+            sp = subprocess.Popen(condor_status, shell=False,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (query_out, query_err) = sp.communicate(input=None)
+        except:
+            log.exception("Problem running %s, unexpected error" % string.join(query_status, " "))
+            return []
+        
+        machine_list = self._torque_pbsnodes_to_machine_list(query_out)
+        
+        return machine_list
 
     def resource_query_local(self):
         """
@@ -895,6 +921,14 @@ class ResourcePool:
 
         return machines
 
+    @staticmethod
+    def _torque_pbsnodes_to_machine_list(query_output):
+        """
+        _torque_pbsnodes_to_machine_list - Converts the output of
+            pbsnodes to a list of machines
+        """
+        machines = []
+        return machines
 
     @staticmethod
     def _condor_machine_xml_to_machine_list(condor_xml):

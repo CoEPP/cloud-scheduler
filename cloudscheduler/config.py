@@ -25,6 +25,7 @@ condor_status_command = "condor_status -l"
 condor_status_master_command = "condor_status -master -l"
 condor_off_command = "/usr/sbin/condor_off"
 condor_on_command = "/usr/sbin/condor_on"
+torque_pbsnodes_command = "pbsnodes"
 ssh_path = "/usr/bin/ssh"
 openssl_path = "/usr/bin/openssl"
 condor_host = "localhost"
@@ -127,6 +128,7 @@ def setup(path=None):
     global condor_status_master_command
     global condor_off_command
     global condor_on_command
+    global torque_pbsnodes_command
     global ssh_path
     global openssl_path
     global condor_context_file
@@ -261,6 +263,10 @@ def setup(path=None):
     if config_file.has_option("global", "condor_on_command"):
         condor_on_command = config_file.get("global",
                                                 "condor_on_command")
+
+    if config_file.has_option("global", "torque_pbsnodes_command"):
+        torque_pbsnodes_command = config_file.get("global",
+                                                "torque_pbsnodes_command")
 
     if config_file.has_option("global", "ssh_path"):
         ssh_path = config_file.get("global", "ssh_path")
