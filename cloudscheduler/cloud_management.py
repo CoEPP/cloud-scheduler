@@ -876,6 +876,10 @@ class ResourcePool:
         Returns a list of dictionaries with information about the machines masters
         registered with condor.
         """
+        
+        if config.batch_system_type.lower() == "torque":
+            return []
+        
         log.verbose("Querying Condor Collector with %s" % config.condor_status_master_command)
 
         master_list = []
