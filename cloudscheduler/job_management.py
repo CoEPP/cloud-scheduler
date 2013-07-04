@@ -715,8 +715,8 @@ class JobPool:
             if job.has_key("GlobalJobId"):
                 job_id = job["GlobalJobId"].split('.')[0]
                 ids = job_id.split('[')
-                cluster_id = None
-                proc_id = None
+                cluster_id = 0
+                proc_id = 0
                 if len(ids) == 1:
                     cluster_id = int(ids[0])
                 elif len(ids) == 2:
