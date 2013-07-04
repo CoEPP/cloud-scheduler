@@ -807,7 +807,7 @@ class ResourcePool:
         machine_list = []
         try:
             query_status = shlex.split(config.torque_pbsnodes_command)
-            sp = subprocess.Popen(condor_status, shell=False,
+            sp = subprocess.Popen(query_status, shell=False,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             (query_out, query_err) = sp.communicate(input=None)
         except:
