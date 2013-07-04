@@ -17,6 +17,9 @@ import utilities
 # Cloud Scheduler Options Module.
 
 # Set default values
+batch_system = "condor"
+torque_qstat_command="/usr/bin/qstat -f -t"
+torque_pbsnodes_command="/usr/bin/pbsnodes -a"
 condor_webservice_url = "http://localhost:8080"
 condor_collector_url = "http://localhost:9618"
 condor_retrieval_method = "soap"
@@ -119,6 +122,9 @@ def setup(path=None):
        or in ~/.cloudscheduler.conf or /etc/cloudscheduler.conf
     """
 
+    global batch_system
+    global torque_qstat_command
+    global torque_pbsnodes_command
     global condor_webservice_url
     global condor_collector_url
     global condor_retrieval_method
@@ -244,6 +250,15 @@ def setup(path=None):
         print "Configuration file problem: There is something wrong with " \
               "your config file."
         raise
+
+    if config_file.has_option("global", "batch_system"):
+        batch_system = config_file.get("global", "batch_system")
+
+    if config_file.has_option("global", "torque_qstat_command"):
+        torque_qstat_command = config_file.get("global", "torque_qstat_command")
+        
+    if config_file.has_option("global", "torque_pbsnodes_command"):
+        torque_pbsnodes_command = config_file.get("global", "torque_pbsnodes_command")
 
     if config_file.has_option("global", "condor_retrieval_method"):
         condor_retrieval_method = config_file.get("global",

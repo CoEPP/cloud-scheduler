@@ -28,6 +28,7 @@ from __future__ import with_statement
 import os
 import re
 import sys
+import time
 import shlex
 import string
 import logging
@@ -423,25 +424,33 @@ class JobPool:
         self.last_query = None
         self.write_lock = threading.RLock()
 
-        _schedd_wsdl  = "file://" + determine_path() \
-                        + "/wsdl/condorSchedd.wsdl"
-        self.condor_schedd = Client(_schedd_wsdl,
-                                    location=config.condor_webservice_url)
-        self.condor_schedd_as_xml = Client(_schedd_wsdl,
-                                    location=config.condor_webservice_url,
-                                    retxml=True, timeout=self.CONDOR_TIMEOUT)
-
-        if not condor_query_type:
-            condor_query_type = config.condor_retrieval_method
-
-        if condor_query_type.lower() == "local":
-            self.job_query = self.job_query_local
-        elif condor_query_type.lower() == "soap":
-            self.job_query = self.job_query_SOAP
+        self.batch_system = config.batch_system
+        if self.batch_system == 'condor':
+            _schedd_wsdl  = "file://" + determine_path() \
+                            + "/wsdl/condorSchedd.wsdl"
+            self.condor_schedd = Client(_schedd_wsdl,
+                                        location=config.condor_webservice_url)
+            self.condor_schedd_as_xml = Client(_schedd_wsdl,
+                                        location=config.condor_webservice_url,
+                                        retxml=True, timeout=self.CONDOR_TIMEOUT)
+    
+            if not condor_query_type:
+                condor_query_type = config.condor_retrieval_method
+                
+            if condor_query_type.lower() == "local":
+                self.job_query = self.job_query_local
+            elif condor_query_type.lower() == "soap":
+                self.job_query = self.job_query_SOAP
+            else:
+                log.error("Can't use '%s' retrieval method. Using SOAP method." % condor_query_type)
+                self.job_query = self.job_query_SOAP
+        elif self.batch_system in ["pbs", "torque"]:
+            self.job_query = self.job_query_local_pbs()
         else:
-            log.error("Can't use '%s' retrieval method. Using SOAP method." % condor_query_type)
-            self.job_query = self.job_query_SOAP
-            
+            log.error("ERROR: The batch system '%s' is not supported. Check "
+                      "batch_system directive in cloud_scheduler.conf file." 
+                      % self.batch_system)
+
         if config.job_distribution_type.lower() == "normal":
             #self.job_type_distribution = self.job_type_distribution_normal
             self.job_type_distribution = self.job_usertype_distribution_normal
@@ -486,6 +495,25 @@ class JobPool:
         self.last_query = datetime.datetime.now()
         return job_ads
 
+    def job_query_local_pbs(self):
+        """job_query_local_pbs -- query and parse qstat for job information."""
+        log.verbose("Querying PBS with %s" % config.torque_qstat_command)
+        try:
+            qstat = shlex.split(config.torque_qstat_command)
+            sp = subprocess.Popen(qstat, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (qstat_out, qstat_err) = sp.communicate(input=None)
+            returncode = sp.returncode
+        except:
+            log.exception("Problem running '%s', unexpected error." % qstat)
+            return None
+
+        if returncode != 0:
+            log.error("ERROR: Got non-zero return code '%s' from '%s'. The stderr was: %s" % (returncode, qstat, qstat_err))
+            return None
+
+        jobs = self._qstat_to_job_list(qstat_out)
+        self.last_query = datetime.datetime.now()
+        return jobs
 
     def job_query_SOAP(self):
         """job_qury_SOAP - query and parse condor for job information via SOAP API."""
@@ -600,6 +628,132 @@ class JobPool:
             _attribute_from_list(classad, "VMInstanceType")
 
             jobs.append(Job(**classad))
+        return jobs
+
+    @staticmethod
+    def _qstat_to_job_list(qstat_output):
+        """
+        _qstat_to_job_list - Converts the output of qstat to a list of Job objects
+
+                returns [] if there are no jobs
+        """
+
+        def _attribute_from_list(job, attribute):
+            if job.has_key(attribute):
+                attr_list = job[attribute]
+                try:
+                    attr_dict = _attr_list_to_dict(attr_list)
+                    job[attribute] = attr_dict
+                except ValueError:
+                    log.exception("ERROR: Problem extracting %s attribute '%s'" % (attribute, attr_list))
+
+        jobs = []
+
+        # Each job is seperated by '\n\n'
+        raw_jobs = qstat_output.split("\n\n")
+        # Empty torque pools give us an empty string in our list
+        raw_jobs = filter(None, raw_jobs)
+
+        # Job status map (PBS ones to CS ones)
+        # 1 (idle): CS would try to boot a VM for this job
+        # 2 (running): CS would maintain this job's current VM
+        # 3 (held): CS would do nothing and ignore this job
+        job_status_map = {'Q': 1,
+                          'R': 2,
+                          'E': 2,
+                          'S': 5,
+                          'W': 5,
+                          'H': 5,
+                          'T': 5}
+
+        for raw_job in raw_jobs:
+            job = {}
+            # remove tab indention for long value of attribute
+            raw_job = raw_job.replace("\n\t", "")
+            # each key-value pair is seperated by '\n'
+            job_attrs = raw_job.splitlines()
+            
+            # get first attribute (job id)
+            job_id = job_attrs.pop(0)
+            job["GlobalJobId"] = job_id.split(': ')[1]
+            
+            for job_attr in job_attrs:
+                job_attr = job_attr.strip()
+                (job_key, job_value) = job_attr.split(" = ")
+                job[job_key] = job_value
+                
+            # Map PBS job attributes directly to Condor ones used in Cloud Scheduler
+            pbs_attr_names = ["Job_Owner", "exec_host",  "init_work_dir"]
+            cs_attr_names  = ["Owner",     "RemoteHost", "Iwd"]
+            for i in range(len(pbs_attr_names)):
+                if job.has_key(pbs_attr_names[i]):
+                    value = job[pbs_attr_names[i]]
+                    job[cs_attr_names[i]] = value
+                    del job[pbs_attr_names[i]]
+                else:
+                    job[cs_attr_names[i]] = ""
+
+            # Map job priority and convert its data type
+            if job.has_key("Priority"):
+                priority = job["Priority"]
+                job["JobPrio"] = int(priority)
+                del job["Priority"]
+            else:
+                job["JobPrio"] = 0
+                
+            # Map job status
+            if job.has_key("job_state"):
+                job_status = job["job_state"]
+                new_job_status = job_status_map[job_status]
+                job["JobStatus"] = new_job_status
+                del job["job_state"]
+            else:
+                job["JobStatus"] = 6
+            
+            # Map PBS job id to Condor cluster id and process id used in Cloud Scheduler
+            # example job id: 10286[2].c3torque.cloud.coepp.org.au
+            if job.has_key("GlobalJobId"):
+                job_id = job["GlobalJobId"].split('.')[0]
+                ids = job_id.split('[')
+                cluster_id = None
+                proc_id = None
+                if len(ids) == 1:
+                    cluster_id = int(ids[0])
+                elif len(ids) == 2:
+                    cluster_id = int(ids[0])
+                    proc_id = int(ids[1].rstrip(']'))
+                    
+                job["ClusterId"] = cluster_id
+                job["ProcId"] = proc_id
+            
+            # Fetch the current time, seconds since Epoch
+            job["ServerTime"] = time.time()
+            
+            # Map PBS the time which the job first began running and convert its format
+            # example tiem: "Tue May 28 02:05:56 2013"
+            if job.has_key("start_time"):
+                start_time = job["start_time"]
+                seconds = time.mktime(time.strptime(start_time, "%a %b %d %H:%M:%S %Y"))
+                job["JobStartDate"] = seconds
+                del job["start_time"]
+
+            # Extract user-defined attributes from Variable_List
+            if job.has_key("Variable_List"):
+                attr_str = job["Variable_List"]
+                attr_list = attr_str.split(',')
+                for attr in attr_list:
+                    (key, value) = attr.split('=', 1)
+                    job[key] = value
+                
+            # TODO: allow cloud scheduler to attempt to extract some of the VM 
+            # requirements from the PBS Resource_List.* attributes. Reference:
+            # http://www.clusterresources.com/torquedocs/2.1jobsubmission.shtml#resources
+            
+            # VMAMI requires special fiddling
+            _attribute_from_list(job, "VMAMI")
+            _attribute_from_list(job, "VMInstanceType")
+
+            jobs.append(Job(**job))
         return jobs
 
     @staticmethod
