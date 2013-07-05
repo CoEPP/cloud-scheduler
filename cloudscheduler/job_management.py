@@ -445,7 +445,7 @@ class JobPool:
                 log.error("Can't use '%s' retrieval method. Using SOAP method." % condor_query_type)
                 self.job_query = self.job_query_SOAP
         elif self.batch_system in ["pbs", "torque"]:
-            self.job_query = self.job_query_local_pbs()
+            self.job_query = self.job_query_local_pbs
         else:
             log.error("ERROR: The batch system '%s' is not supported. Check "
                       "batch_system directive in cloud_scheduler.conf file." 
